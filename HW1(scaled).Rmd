@@ -1,0 +1,555 @@
+---
+title: "STAT 2270 Homework 1 Fall 2020"
+author: "Manuel Alejandro Garcia Acosta"
+date: "8/27/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library('ISLR')
+library(MASS)
+library(olsrr)
+library(leaps)
+library(glmnet)
+library(car)
+library(carData)
+library(ggplot2)
+```
+
+# Exercise 4
+
+Here we’ll make use of the Hitters dataset found in the ISLR package in R. Note that ISLR here stands for the textbook ``Introduction to Statistical Learning with applications in R'' cited in the syllabus for this class. You may find the lab contained in Chapter 6 of ISLR very useful for the first few parts of this exercise.
+
+## Part (a)
+
+Load in the Hitters dataset found in the ISLR package in R. Following the approach
+in ISLR, we’ll use Salary as our response and treat the rest of the variables as predictors. Remove all rows of the data that contain missing values. We’ll treat the remaining data as our working dataset for the remainder of this problem.
+
+First I loaded the dataset and omitted the rows with missing values.
+
+$\textbf{Note: }$ I'm turning in the analysis performed after normalizing/scaling the numeric variables. This scaling included the 'Salary' variable. As we discussed, results were similar to those obtained by performing the analysis with the original data (without scaling the numeric variables).
+
+```{r}
+# Loading the dataset
+if(exists('Hitters')){
+  rm(Hitters)
+}else{
+  fix(Hitters)
+}
+# Omitting the rows with missing values
+Hitters <- na.omit(Hitters)
+# Scaling all numeric variables including 'Salary'
+ind <- sapply(Hitters, is.numeric)
+Hitters[ind] <- lapply(Hitters[ind], scale)
+rm(ind)
+```
+
+## Part (b)
+
+Construct a linear model and record the resulting MSE of the predictions on the
+(training) data. Don’t worry about fixing up the linear model (e.g. removing terms that are not significant) – simply regress Salary on all remaining predictors and record the error.
+
+$\textbf{NOTES:}$ 
+
+- For computing the $MSE$ I'm taking the mean of the residual sum of squares. I did this throughout this HW.
+
+- As we discussed, the $MSE$ I'll be reporting was the $\textit{training error}$.
+
+```{r}
+# Fitting the linear model
+fit <- lm(Salary ~ ., data = Hitters)
+# I computed the MSE by dividing the residuals squared sum by n
+# ISLR book just takes the mean of the residual sum of squares for the MSE
+mse <- sum((Hitters$Salary - fit$fitted.values)^2)/(length(Hitters$Salary))
+```
+
+The $MSE$ for this model is 0.4521583.
+
+## Part (c)
+
+Now construct the best possible linear model you can find. You can do this however you like: removing terms that are not significant, using combinations of forward/backward selection, including interaction terms, including higher order polynomial terms etc., but don’t use any of the regularization methods we discussed in class. Once you’ve found what you think is the best model, record the MSE.
+
+### Multicollinearity
+
+I checked the data for collinearity and there seems to be some sort of multicollinearity in the dataset. Some of the covariates like 'CAtBat', 'CHits', 'CRuns' and 'CRBI' have $VIF$ over 100. This was really high.
+
+However, I decided not to discard them right away and started doing model selection with the saturated model (all features).
+
+```{r}
+# Computing the VIF for all the covariates
+vif(lm(Salary ~ ., data = Hitters))
+```
+
+### Adding covariates
+
+After plotting the residuals of the model from part (b) vs the covariates, I tried adding to the model the squares of 'AtBat', 'Hits', 'Runs' and 'Walks'. While testing for the effects of the squares separately (a model with all original covariates plus one of these squares) all the p-values were below $\alpha = 0.05$.
+
+```{r, include=FALSE}
+# Here I got the p-values for the above mentioned tests
+# You can ignore this
+fit1 <- lm(Salary ~ .+I(AtBat^2), data = Hitters)
+summary(fit1)
+fit2 <- lm(Salary ~ .+I(Hits^2), data = Hitters)
+summary(fit2)
+fit3 <- lm(Salary ~ .+I(Runs^2), data = Hitters)
+summary(fit3)
+fit4 <- lm(Salary ~ .+I(Walks^2), data = Hitters)
+summary(fit4)
+rm(fit1,fit2,fit3,fit4) # I removed the models since I don't use them again
+```
+
+```{r, echo=FALSE}
+plot(Hitters$AtBat, fit$residuals, xlab = 'AtBat', ylab = 'Residuals', main = 'Residual plot against AtBat')
+```
+
+```{r, echo=FALSE}
+plot(Hitters$Hits, fit$residuals, xlab = 'Hits', ylab = 'Residuals', main = 'Residual plot against Hits')
+```
+
+```{r, echo=FALSE}
+plot(Hitters$Runs, fit$residuals, xlab = 'Runs', ylab = 'Residuals', main = 'Residual plot against Runs')
+```
+
+```{r, echo=FALSE}
+plot(Hitters$Walks, fit$residuals, xlab = 'Walks', ylab = 'Residuals', main = 'Residual plot against Walks')
+```
+
+After this I looked for interactions between variables, I did this in a single model.
+
+```{r}
+# Fitting a model with all covariates and all possible interaction effects
+fit2 <- lm(Salary ~ (.)^2, data = Hitters)
+# summary(fit2)
+```
+
+While testing for the interaction terms, the interactions which seemed significant at $\alpha=0.05$ where $AtBat*CHmRun$, $AtBat*CRuns$, $Hits*CHmRun$, $Walks*ChmRun$ and $CHmRun*CRBI$ and $PutOuts*Assists$.
+
+### Model selection
+
+I procedeed to perform stepwise selection with $(\alpha_{1} = 0.05, \alpha_{2}=0.1)$. I considered all original covariates plus the squared and interaction terms that appeared to be significant after my initial exploration.
+
+$\textbf{NOTE:}$ I commented out the line for stepwise selection sice the output was way to long to include it on the pdf file version of the HW. You'll find the code on the Rmd file 'HW1(scaled).Rmd'
+
+```{r}
+# Fitting the expanded model
+fit3 <- lm(Salary ~ . + I(AtBat^2) + I(Hits^2)+ I(Runs^2)+ I(Walks^2) +
+                   AtBat*CHmRun+ AtBat*CRuns + Hits*CHmRun + Walks*CHmRun +
+                  CHmRun*CRBI + PutOuts*Assists, data = Hitters)
+# Running stepwise selection for the proposed model
+alpha.1 <- 0.05
+alpha.2 <- 0.1
+# step.wise <- ols_step_both_p(fit3, pent = alpha.1, prem = alpha.2)
+```
+
+After running stepwise selection I got a model that includes 'Walks', 'CAtBat', 'CHmRun', 'Division', 'AtBat^2', 'Hits^2', 'Walks^2', 'PutOuts*Assists'. Next thing I wanted to do was look for the best submodel. I used RSS, Adjusted $R^{2}$, $C_{p}$ and $BIC$ to check which submodel was the 'best'. Next I plot each of these as a function of the number of features each 'best' subset has.
+
+```{r, include=TRUE}
+regfit <- regsubsets(Salary ~ Walks+CAtBat+CHmRun+Division+I(AtBat^2)+
+                        I(Hits^2)+ I(Walks^2)+PutOuts*Assists, data = Hitters,
+                        nvmax = 8)
+reg.summary <- summary(regfit)
+```
+
+```{r, echo=FALSE}
+plot(reg.summary$rss, xlab = 'Number of variables', ylab = 'RSS', 
+     main = 'Residual Sum of Squares VS Num. of Variables', type = 'l')
+```
+
+```{r, echo=FALSE}
+plot(reg.summary$adjr2, xlab = 'Number of variables', ylab = 'Adjusted RSq', 
+     main = 'Adjusted RSq VS Num. of Variables', type = 'l')
+# which.max(reg.summary$adjr2)
+```
+
+```{r, echo=FALSE}
+plot(reg.summary$cp, xlab = 'Number of variables', ylab = 'Cp', 
+     main = 'Cp VS Num. of Variables', type = 'l')
+# which.min(reg.summary$cp)
+```
+
+```{r, echo=FALSE}
+plot(reg.summary$bic, xlab = 'Number of variables', ylab = 'BIC', 
+     main = 'BIC VS Num. of Variables', type = 'l')
+# which.min(reg.summary$bic)
+```
+
+Results suggest that the best model for all criterias except $BIC$ is the one with all 8 covariates ('Walks', 'CAtBat', 'CHmRun', 'Division', 'AtBat^2', 'Hits^2', 'Walks^2', 'PutOuts*Assists'). This is exactly the same model I got after running stepwise selection. Using $BIC$ the best model used 6 covariates, dropping 'AtBat^2' and 'Walks^2' from the full model. I'll pick the one with all 8 features to compute the $MSE$.
+
+```{r}
+# Computing the MSE of the model
+fit4 <- lm(Salary ~ Walks+CAtBat+CHmRun+Division+I(AtBat^2)+
+             I(Hits^2)+I(Walks^2)+PutOuts*Assists, data = Hitters)
+mse4 <- mean(fit4$residuals^2)
+```
+
+Finally, the $MSE$ for the resulting model was 0.4583174, which this time around wasn't an improvement over the model from part (b). So sad $:($.
+
+## Part (d)
+
+Find the best model using ridge regression. Consider a range of tuning parameters and select the best model by cross validation. Record the value of the optimal tuning parameter as well as the values of the resulting coefficient estimates from that model.
+
+$\textbf{NOTE:}$ For solving this homework I selected the tunning parameters\footnote{$\lambda$ for ridge regression, lasso and elastic net, $\alpha$ for elastic net} while using 10-fold cross-validation.
+
+For $\lambda$ I created a vector with one thousand values ranging from $1*10^{10}$ to $0.01$.
+
+```{r}
+# Creating the design matrix and the response vector
+# NOTE: I needed to erase the intercept because glmnet creates the intercept 
+#   automatically
+x <- model.matrix(Salary~., data = Hitters, y=Salary)[,-1]
+y <- Hitters$Salary
+# Creating a set of possible values for lambda
+lambdas <- 10^seq(10,-2,length.out=1000)
+# Fitting ridge regression for the vector of lambdas
+fit.ridge <- glmnet(x,y,alpha = 0, lambda = lambdas)
+```
+
+$\textbf{NOTE:}$ For reproducibility purposes I set a seed whenever I used $k$-fold cross-validation. This holds for all remaining parts of this exercise.
+
+```{r}
+# Set a seed so results can be reproduced
+set.seed(1989)
+# Here I run 10-fold cross-validation
+cv.fit.ridge <- cv.glmnet(x,y, alpha = 0, nfolds = 10, lambda = lambdas,
+                          type.measure = 'mse')
+```
+
+I include a plot of how the $MSE$ varies alongside $log(\lambda)$.
+
+```{r, echo=FALSE}
+# Plot log(lambda) vs training MSE
+plot(cv.fit.ridge)
+```
+
+Next, I obtained the value for $\lambda$ associated to the smallest cross-validation error as well as the coefficient estimates for that model. Notice that I got my results after running $k$-fold cross-validation only once.
+
+```{r}
+# Obtain the lambda which gives smallest error
+ridge.lambda <- cv.fit.ridge$lambda.min
+```
+
+The 'best' value for lambda was $\lambda = 0.0294082$. For this value, the ridge regression estimates are
+
+```{r}
+# Run ridge regression with the 'best' lambda
+best.ridge.fit <- glmnet(x,y, alpha = 0, lambda = ridge.lambda)
+# Obtain the coefficients
+coef.d <- as.matrix(coef(best.ridge.fit))
+coef.d
+```
+
+Finally, I computed the MSE for ridge regression using the best lambda. Here $MSE = 0.4711957$
+
+```{r}
+# Computing the MSE of the model
+ridge.pred <- as.numeric(predict(best.ridge.fit, s=ridge.lambda, newx=x))
+mse.ridge <- mean((ridge.pred - y)^2)
+```
+
+## Part (e)
+
+Repeat part (d) with lasso.
+
+For solving this part I selected the tunning parameter while using 10-fold cross-validation. 
+
+$\textbf{NOTE:}$ I'm using the design matrix 'x', response vector 'y' and the vector of lambdas 'lambdas' created in part (d) for parts (e)-(f) also.
+
+```{r}
+# Fitting lasso for vector of lambdas
+fit.lasso <- glmnet(x,y,alpha = 1, lambda = lambdas)
+```
+
+I set the seed and run cross-validation next
+
+```{r}
+# Set a seed so results can be reproduced
+set.seed(1991)
+# Here I run 10-fold cross-validation
+cv.fit.lasso <- cv.glmnet(x,y, alpha = 1, nfolds = 10, lambda = lambdas,
+                          type.measure = 'mse')
+```
+
+I include a plot of how the $MSE$ varies alongside $log(\lambda)$.
+
+```{r, echo=FALSE}
+# Plot log(lambda) vs training MSE
+plot(cv.fit.lasso)
+```
+
+Next, I obtained the value for $\lambda$ associated to the smallest cross-validation error as well as the coefficient estimates for that model.
+
+```{r}
+# Obtain the lambda which gives smallest error
+lasso.lambda <- cv.fit.lasso$lambda.min
+```
+
+The 'best' value for lambda was $\lambda = 0.01$. For this value, the lasso estimates are
+
+```{r}
+# Run lasso with the 'best' lambda
+best.lasso.fit <- glmnet(x,y, alpha = 1, lambda = lasso.lambda)
+# Obtain the coefficients
+coef.e <- as.matrix(coef(best.lasso.fit))
+coef.e
+```
+
+Finally, I computed the MSE for lasso using the best lambda. Here $MSE = 0.4750985$.
+
+```{r}
+# Computing the MSE of the model
+lasso.pred <- as.numeric(predict(best.lasso.fit, s=lasso.lambda, newx=x))
+mse.lasso <- mean((lasso.pred - y)^2)
+```
+
+## Part (f)
+
+Repeat part (d) with elastic net.
+
+$\textbf{NOTE: }$ In order to solve this part of the problem I programmed a bunch of functions that allowed me to run elastic net through different values for $\alpha$. I'm omitting the code on the pdf but they can be found in the Rmd file 'HW1(scaled).Rmd' of my HW.
+
+```{r, include=FALSE}
+# cv.alpha() runs cv.glmnet. This functions allows to run elastic net 
+#   inside an apply()-type function
+cv.alpha <- function(alpha.arg, x.arg=NULL, y.arg=NULL, lambda.arg = NULL){
+  cv.glmnet(alpha = alpha.arg, x=x.arg, y=y.arg, lambda = lambda.arg, nfolds = 10,
+            type.measure = 'mse')
+}
+
+# cv.alpha.vect() calls cv.alpha() and allows to run elastic net for a given
+#   vector of values for alpha
+cv.alpha.vect <- function(alphas, feat=NULL, res=NULL, l=NULL){
+  lapply(alphas, cv.alpha, x.arg=feat, y.arg=res, lambda.arg=l)
+}
+
+# get.lambda() gives the value of lambda which minimizes the cross-validation
+#   error for a model ran with k-fold cross-validation
+get.lambda <- function(model){
+  model$lambda.min
+}
+
+# cv.get.lambdas() calls get.lambda() and retrieves the lambda which minimizes
+#   the cross-validation error for each value of alpha
+cv.get.lambdas <- function(output){
+  temp <- sapply(output,get.lambda)
+  names(temp) <- as.character(alphas)
+  temp
+}
+
+# get.mse() gives the MSE for the best lambda on a given model ran with
+#   k-fold cross-validation
+get.mse <- function(model, feat=NULL, res=NULL){
+  temp.lambda <- model$lambda.min
+  temp.pred <- as.numeric(predict(model, s=temp.lambda, newx=feat))
+  mean((temp.pred - res)^2)
+}
+
+# cv.mse.vet() calls get.mse() and retrieves the MSE associated with the best
+#   lambda for each value of alpha (i.e. for each model, one model per alpha)
+cv.mse.vect <- function(output, featu=NULL, resp=NULL){
+  temp <- sapply(output,get.mse, feat = featu, res=resp)
+  names(temp) <- as.character(alphas)
+  temp
+}
+```
+
+Now, for elastic net I did basically three steps
+
+\begin{enumerate}
+  \item Define a set of alphas and run $k$-fold cross-validation for each lambda
+  \item Choose best lambda for each alpha
+  \item Compare MSE for each of the lambdas obtained. Since each $\lambda$ corresponds to a single $\alpha$, this will give us the best pair of $(\alpha,\lambda)$.
+\end{enumerate}
+
+The set of $\alpha$'s I used were $\{0,0.01,0.02, \dots, 1\}$. Once again, I set a seed for reproducibility.
+
+```{r}
+# Set a seed so results can be reproduced
+set.seed(1995)
+# Create vector of alphas
+alphas <- seq(from = 0, to = 1 , by = 0.01)
+# Run k-fold cross-validation for the set of alphas defined above
+out <- cv.alpha.vect(alphas = alphas, feat = x, res = y, l = lambdas)
+# Get a vector of the MSE associated to the 'best' lambda for each alpha
+elastic.mse <- cv.mse.vect(out, featu = x, resp = y)
+# Select the lowest MSE over elastic.mse
+index <- which.min(elastic.mse)
+# Gets the minimum MSE over all pairs (alpha,lambda)
+mse.elastic <- elastic.mse[index]
+```
+
+The best pair $(\alpha,\lambda)$ was (0, 0.01) with $MSE_{\alpha,\lambda} = 0.459424$. This intuitively tells us that lasso performs a little bit better than ridge regression while using the original covariates since the 'best' alpha was close to 1. The elastic net estimates are
+
+```{r}
+# Get best pair (alpha, lambda)
+elastic.alpha <- alphas[index]
+elastic.lambda <- get.lambda(out[[index]])
+# Get coefficient estimates
+best.elastic.fit <- glmnet(x,y, alpha = elastic.alpha, lambda = elastic.lambda)
+coef.f <- as.matrix(coef(best.elastic.fit))
+coef.f
+```
+
+## Part (g)
+
+Compare the models in parts (b)-(f). Does any one model (or a few models) stand
+out as being substantially better than the others?
+
+By comparing $MSE$'s of the different models. I can state that between the models which only use the original features, $OLS$ (0.4521583) and elastic net (0.459424) performed better than ridge regression (0.4711957) and lasso (0.4750985). The model proposed in part (c) outperformed all regularization methods (0.4583174) but not $OLS$ using MSE  as __selection criteria__.
+
+## Part (h)
+
+Make a scatterplot of coefficient estimates from part (b) vs those found in part (d). Repeat this to compare the results in (b) with those from (e) and also from (f). Are those coefficients with the smallest estimates those most penalized in parts (d)-(f)?
+
+Here I will compute the coefficients for OLS and regularization methods after scaling the numeric variables.
+
+While plotting the coefficients estimates from $OLS$ against those obtained by using ridge regression, lasso and elastic net we can tell that $OLS$ estimates which where close to 0 (either negative or positive) were the most penalized regarless of the regularization method used.
+
+In all three plots, visible clusters around $(0,0)$ appear.
+
+```{r, echo=FALSE}
+coef.b <- coef(fit)
+plot(coef.b,coef.d[,1], xlab = 'OLS', ylab = 'Ridge', 
+     main = 'Scatterplot of OLS VS Ridge reg. estimates')
+```
+
+```{r, echo=FALSE}
+plot(coef.b,coef.e[,1], xlab = 'OLS', ylab = 'lasso', 
+     main = 'Scatterplot of OLS VS lasso estimates')
+```
+
+```{r, echo=FALSE}
+plot(coef.b,coef.f[,1], xlab = 'OLS', ylab = 'Elastic net', 
+     main = 'Scatterplot of OLS VS Elastic net estimates')
+```
+
+## Part (i)
+
+Repeat parts (d)-(f) with a dataset that includes interactions and higher order polynomial terms. Do these models appear to be better than the others you’ve fit thus far?
+
+For this exercise I'll be adding the extra variables that I proposed on part (c).
+
+$\textbf{NOTE:}$ Here some comments about what I did for this part.
+\begin{itemize}
+  \item I created a new design matrix 'x.ext'. It will be used for all regularization methods.
+  \item Since I'm still trying to predict 'Salary' I'll keep up using the response vector 'y' created in part (d).
+  \item I'll use the same set of vectors for the hyper-parameters that I used to tune $\lambda$ ('lambdas') and $\alpha$ ('alphas') in parts (d)-(f).
+\end{itemize}
+
+### Ridge regression
+
+I did pretty much the same as in part (d) after adding the higher order polynomial and interaction terms.
+
+```{r}
+# Create the new design matrix
+# NOTE: Needed to erase the intercept because glmnet creates the intercept 
+#   automatically
+x.ext <- model.matrix(Salary ~ . + I(AtBat^2) + I(Hits^2)+ I(Runs^2)+ I(Walks^2)+
+                   AtBat*CHmRun+ AtBat*CRuns + Hits*CHmRun + Walks*CHmRun+
+                  CHmRun*CRBI + PutOuts*Assists, data = Hitters, y=Salary)[,-1]
+```
+
+After setting the seed I used $k$-fold cross-validation to select $\lambda$.
+
+```{r}
+# Set a seed so results can be reproduced
+set.seed(1990)
+# Here I run 10-fold cross-validation
+cv.fit.ext.ridge <- cv.glmnet(x.ext,y, alpha = 0, nfolds = 10, lambda = lambdas,
+                              type.measure = 'mse')
+```
+
+```{r}
+# Obtain the lambda which gives smallest error
+ext.ridge.lambda <- cv.fit.ext.ridge$lambda.min
+```
+
+The 'best' value for lambda was $\lambda = 0.02110203$. For this value, the ridge regression estimates are
+
+```{r}
+# Run ridge regression with the 'best' lambda
+best.ext.ridge.fit <- glmnet(x.ext,y, alpha = 0, lambda = ext.ridge.lambda)
+# Obtain the coefficients
+coef.ext.d <- as.matrix(coef(best.ext.ridge.fit))
+coef.ext.d
+```
+
+Finally, the $MSE$ for this model was 0.3148338.
+
+```{r}
+# Computing the MSE of the model
+ext.ridge.pred <- as.numeric(predict(best.ext.ridge.fit, s=ext.ridge.lambda,
+                                     newx=x.ext))
+mse.ext.ridge <- mean((ext.ridge.pred - y)^2)
+```
+
+### Lasso
+
+I did pretty much the same as in part (e) after adding the higher order polynomial and interaction terms.
+
+$\textbf{NOTE:}$ As mentioned, I'll keep using the same design matrix as above.
+
+I set the seed and used $k$-fold cross-validation to select $\lambda$.
+
+```{r}
+# Set a seed so results can be reproduced
+set.seed(2017)
+# Here I run 10-fold cross-validation
+cv.fit.ext.lasso <- cv.glmnet(x.ext,y, alpha = 1, nfolds = 10, lambda = lambdas,
+                              type.measure = 'mse')
+```
+
+```{r}
+# Obtain the lambda which gives smallest error
+ext.lasso.lambda <- cv.fit.ext.lasso$lambda.min
+```
+
+The 'best' value for lambda was $\lambda = 0.01$. For this value, the lasso estimates are
+
+```{r}
+# Run lasso with the 'best' lambda
+best.ext.lasso.fit <- glmnet(x.ext,y, alpha = 1, lambda = ext.lasso.lambda)
+# Obtain the coefficients
+coef.ext.e <- as.matrix(coef(best.ext.lasso.fit))
+coef.ext.e
+```
+
+Finally, the $MSE$ for this model was 0.3270579.
+
+```{r}
+# Computing the MSE of the model
+ext.lasso.pred <- as.numeric(predict(best.ext.lasso.fit, s=ext.lasso.lambda,
+                                     newx=x.ext))
+mse.ext.lasso <- mean((ext.lasso.pred - y)^2)
+```
+
+### Elastic net
+
+$\textbf{NOTE: }$ I'll be using the functions I defined for part (f). Also, followed the same steps as in part (f).
+
+```{r}
+# Set a seed so results can be reproduced
+set.seed(2018)
+# Run k-fold cross-validation for the set of alphas
+out.ext <- cv.alpha.vect(alphas = alphas, feat = x.ext, res = y, l = lambdas)
+# Get a vector of the MSE associated to the 'best' lambda for each alpha
+ext.elastic.mse <- cv.mse.vect(out.ext, featu = x.ext, resp = y)
+# Select the lowest MSE over elastic.mse
+index.ext <- which.min(ext.elastic.mse)
+# Gets the minimum MSE over all pairs (alpha,lambda)
+mse.ext.elastic <- ext.elastic.mse[index.ext]
+```
+
+The best pair $(\alpha,\lambda)$ was (0.02, 0.01056876) with $MSE_{\alpha,\lambda} = 0.3091055$. This time elastic net came closer to ridge regression. The elastic net estimates are
+
+```{r}
+# Get best pair (alpha, lambda)
+elastic.alpha <- alphas[index.ext]
+elastic.lambda <- get.lambda(out[[index.ext]])
+# Get coefficient estimates
+best.elastic.fit <- glmnet(x,y, alpha = elastic.alpha, lambda = elastic.lambda)
+coef.f <- as.matrix(coef(best.elastic.fit))
+coef.f
+```
+
+Using the MSE as __performance criteria__, we can say that these models appear to be 'better'. All new models performed better than any of the models in parts (b)-(f). This means also that the models improved the first iteration of each regularization method; elastic net (0.3091055) performed better than ridge regression (0.3148338) and lasso (0.3270579). The 'best' model overall judging by the $MSE$ was elastic net with the added features.

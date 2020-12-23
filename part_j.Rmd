@@ -1,0 +1,546 @@
+---
+title: "Ex4 part (j)"
+author: "Manuel Alejandro Garcia Acosta"
+date: "9/10/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(MASS)
+library(olsrr)
+library(leaps)
+library(glmnet)
+library(car)
+library(carData)
+library(ggplot2)
+library('ISLR')
+```
+
+### Part (j) 
+
+Now add some noise to the response. That is, replace __Salary__ by $\textbf{Salary} + \epsilon$ where $\epsilon \sim N (0, \sigma^{2} )$ for some chosen value of $\sigma$. Again, try a standard linear model, ridge, lasso and elastic net where each model is optimally tuned. Repeat this for several increasing values of $\sigma^{2}$. On one plot, plot the error of each model against the amount of additional noise. Does one model or a certain subset of models tend to perform better or worse for large or small values of $\sigma$? Is there some intuition for this? Discuss.
+
+For part (j) I decided to not scale 'Salary'. I just scaled the features and then I added the noise to 'Salary'. Noise was added as $\epsilon \sim N(0,\sigma^2)$ to 'Salary' for several values of $\sigma$. I made two plots of $\sigma$ vs $MSE$, one for small values of $\sigma$ and the other one for big values.
+
+Interestingly, the results were similar to what I got in part (g). OLS and elastic net performed better than ridge regression and lasso for both small and large values of $\sigma$. Moreover, for large values of $\sigma$ all regularization methods start performing way worse than OLS, even elastic net. 
+
+After our discussions now I get this happened because I used $\textit{training error}$ to compare the models. Using $\textit{test error}$ $OLS$ should perform better for smaller values of $\sigma$ and the regularization methods should perfom better than $OLS$ for large values of $\sigma$.
+
+$\textbf{Notes:}$ 
+
+- Here I'm using quite a bit of code here, but I'm esentially using the same functions as in parts (b)-(i). I'm omitting the code here but you can find it on the Rmd file 'part_j.Rmd' I'm attaching.
+
+- For this part I ran all the models using all the original features, i.e., the models were the same as parts (b) and (d)-(f) with additional noise.
+
+- I continued using seeds for reproducibility.
+
+```{r, include=FALSE}
+# Loading the dataset
+if(exists('Hitters')){
+  rm(Hitters)
+}else{
+  fix(Hitters)
+}
+# Omitting the rows with missing values
+original.Hitters <- na.omit(Hitters)
+# Here I scale only the features
+Hitters <- original.Hitters[ ,-19]
+ind <- sapply(Hitters, is.numeric)
+Hitters[ind] <- lapply(Hitters[ind], scale)
+# Create data frame with scaled covariates and original 'Salary'
+Hitters <- cbind(Hitters, 'Salary' = original.Hitters$Salary)
+rm(ind)
+# Create vector of lambdas/alphas for regularization methods
+lambdas <- 10^seq(10,-2,length.out=1000)
+alphas <- seq(from = 0, to = 1 , by = 0.01)
+```
+
+```{r, include=FALSE}
+# cv.alpha() runs cv.glmnet. This functions allows to run elastic net 
+#   inside an apply()-type function
+cv.alpha <- function(alpha.arg, x.arg=NULL, y.arg=NULL, lambda.arg = NULL){
+  cv.glmnet(alpha = alpha.arg, x=x.arg, y=y.arg, lambda = lambda.arg, nfolds = 10,
+            type.measure = 'mse')
+}
+
+# cv.alpha.vect() calls cv.alpha() and allows to run elastic net for a given
+#   vector of values for alpha
+cv.alpha.vect <- function(alphas, feat=NULL, res=NULL, l=NULL){
+  lapply(alphas, cv.alpha, x.arg=feat, y.arg=res, lambda.arg=l)
+}
+
+# get.lambda() gives the value of lambda which minimizes the cross-validation
+#   error for a model ran with k-fold cross-validation
+get.lambda <- function(model){
+  model$lambda.min
+}
+
+# cv.get.lambdas() calls get.lambda() and retrieves the lambda which minimizes
+#   the cross-validation error for each value of alpha
+cv.get.lambdas <- function(output){
+  temp <- sapply(output,get.lambda)
+  names(temp) <- as.character(alphas)
+  temp
+}
+
+# get.mse() gives the MSE for the best lambda on a given model ran with
+#   k-fold cross-validation
+get.mse <- function(model, feat=NULL, res=NULL){
+  temp.lambda <- model$lambda.min
+  temp.pred <- as.numeric(predict(model, s=temp.lambda, newx=feat))
+  mean((temp.pred - res)^2)
+}
+
+# cv.mse.vet() calls get.mse() and retrieves the MSE associated with the best
+#   lambda for each value of alpha (i.e. for each model, one model per alpha)
+cv.mse.vect <- function(output, featu=NULL, resp=NULL){
+  temp <- sapply(output,get.mse, feat = featu, res=resp)
+  names(temp) <- as.character(alphas)
+  temp
+}
+```
+
+This is the plot for small values of $\sigma$, selected values were 1, 5, 10, 15, 20.
+
+```{r, include=FALSE}
+set.seed(2019)
+noise1 <- rnorm(length(Hitters$Salary), sd = 1)
+noise2 <- rnorm(length(Hitters$Salary), sd = 5)
+noise3 <- rnorm(length(Hitters$Salary), sd = 10)
+noise4 <- rnorm(length(Hitters$Salary), sd = 15)
+noise5 <- rnorm(length(Hitters$Salary), sd = 20)
+Hitters$Salary.e1 <- Hitters$Salary+noise1
+Hitters$Salary.e2 <- Hitters$Salary+noise2
+Hitters$Salary.e3 <- Hitters$Salary+noise3
+Hitters$Salary.e4 <- Hitters$Salary+noise4
+Hitters$Salary.e5 <- Hitters$Salary+noise5
+```
+
+```{r, include=FALSE}
+# OLS
+fit.er1 <- lm(Salary.e1 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                Assists+Errors+NewLeague, data = Hitters)
+mse.re1 <- mean(fit.er1$residuals^2)
+fit.er2 <- lm(Salary.e2 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                Assists+Errors+NewLeague, data = Hitters)
+mse.re2 <- mean(fit.er2$residuals^2)
+fit.er3 <- lm(Salary.e3 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                Assists+Errors+NewLeague, data = Hitters)
+mse.re3 <- mean(fit.er3$residuals^2)
+fit.er4 <- lm(Salary.e4 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                Assists+Errors+NewLeague, data = Hitters)
+mse.re4 <- mean(fit.er4$residuals^2)
+fit.er5 <- lm(Salary.e5 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                Assists+Errors+NewLeague, data = Hitters)
+mse.re5 <- mean(fit.er5$residuals^2)
+vect.mse.ols <- c(mse.re1,mse.re2,mse.re3,mse.re4,mse.re5)
+```
+
+```{r, include=FALSE}
+# Making design matrix for each error
+x.er1 <- model.matrix(Salary.e1 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                        CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                        Assists+Errors+NewLeague, data = Hitters,y=Salary.e1)[,-1]
+y.er1 <- Hitters$Salary.e1
+x.er2 <- model.matrix(Salary.e2 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                        CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                        Assists+Errors+NewLeague, data = Hitters,y=Salary.e2)[,-1]
+y.er2 <- Hitters$Salary.e2
+x.er3 <- model.matrix(Salary.e3 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                        CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                        Assists+Errors+NewLeague, data = Hitters,y=Salary.e3)[,-1]
+y.er3 <- Hitters$Salary.e3
+x.er4 <- model.matrix(Salary.e4 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                        CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                        Assists+Errors+NewLeague, data = Hitters,y=Salary.e4)[,-1]
+y.er4 <- Hitters$Salary.e4
+x.er5 <- model.matrix(Salary.e5 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                        CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                        Assists+Errors+NewLeague, data = Hitters,y=Salary.e5)[,-1]
+y.er5 <- Hitters$Salary.e5
+```
+
+```{r, include=FALSE}
+# Ridge Regression
+# Set a seed so results can be reproduced
+set.seed(1980)
+# Here I run 10-fold cross-validation
+cv.fit.ridge.er1 <- cv.glmnet(x.er1,y.er1, alpha = 0, nfolds = 10, 
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.ridge.er2 <- cv.glmnet(x.er2,y.er2, alpha = 0, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.ridge.er3 <- cv.glmnet(x.er3,y.er3, alpha = 0, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.ridge.er4 <- cv.glmnet(x.er4,y.er4, alpha = 0, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.ridge.er5 <- cv.glmnet(x.er5,y.er5, alpha = 0, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+```
+
+```{r, include=FALSE}
+# Obtain the lambda which gives smallest error
+ridge.lambda.er1 <- cv.fit.ridge.er1$lambda.min
+ridge.lambda.er2 <- cv.fit.ridge.er2$lambda.min
+ridge.lambda.er3 <- cv.fit.ridge.er3$lambda.min
+ridge.lambda.er4 <- cv.fit.ridge.er4$lambda.min
+ridge.lambda.er5 <- cv.fit.ridge.er5$lambda.min
+# Run ridge regression with the 'best' lambda
+best.ridge.fit.er1 <- glmnet(x.er1,y.er1, alpha = 0, lambda = ridge.lambda.er1)
+best.ridge.fit.er2 <- glmnet(x.er2,y.er2, alpha = 0, lambda = ridge.lambda.er2)
+best.ridge.fit.er3 <- glmnet(x.er3,y.er3, alpha = 0, lambda = ridge.lambda.er3)
+best.ridge.fit.er4 <- glmnet(x.er4,y.er4, alpha = 0, lambda = ridge.lambda.er4)
+best.ridge.fit.er5 <- glmnet(x.er5,y.er5, alpha = 0, lambda = ridge.lambda.er5)
+# Computing the MSE of the model
+ridge.pred.er1 <- as.numeric(predict(best.ridge.fit.er1, s=ridge.lambda.er1,
+                                     newx=x.er1))
+ridge.pred.er2 <- as.numeric(predict(best.ridge.fit.er2, s=ridge.lambda.er2,
+                                     newx=x.er2))
+ridge.pred.er3 <- as.numeric(predict(best.ridge.fit.er3, s=ridge.lambda.er3,
+                                     newx=x.er3))
+ridge.pred.er4 <- as.numeric(predict(best.ridge.fit.er4, s=ridge.lambda.er4,
+                                     newx=x.er4))
+ridge.pred.er5 <- as.numeric(predict(best.ridge.fit.er5, s=ridge.lambda.er5,
+                                     newx=x.er5))
+mse.ridge.er1 <- mean((ridge.pred.er1 - y.er1)^2)
+mse.ridge.er2 <- mean((ridge.pred.er2 - y.er2)^2)
+mse.ridge.er3 <- mean((ridge.pred.er3 - y.er3)^2)
+mse.ridge.er4 <- mean((ridge.pred.er4 - y.er4)^2)
+mse.ridge.er5 <- mean((ridge.pred.er5 - y.er5)^2)
+
+#mse.ridge.er1 <- cv.fit.ridge.er1$cvm[which.min(cv.fit.ridge.er1$cvm)]
+#mse.ridge.er2 <- cv.fit.ridge.er2$cvm[which.min(cv.fit.ridge.er2$cvm)]
+#mse.ridge.er3 <- cv.fit.ridge.er3$cvm[which.min(cv.fit.ridge.er3$cvm)]
+#mse.ridge.er4 <- cv.fit.ridge.er4$cvm[which.min(cv.fit.ridge.er4$cvm)]
+#mse.ridge.er5 <- cv.fit.ridge.er5$cvm[which.min(cv.fit.ridge.er5$cvm)]
+
+vect.mse.ridge <- c(mse.ridge.er1,mse.ridge.er2,mse.ridge.er3,mse.ridge.er4,
+                    mse.ridge.er5)
+```
+
+```{r, include=FALSE}
+# Lasso
+# Set a seed so results can be reproduced
+set.seed(1981)
+# Here I run 10-fold cross-validation
+cv.fit.lasso.er1 <- cv.glmnet(x.er1,y.er1, alpha = 1, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.lasso.er2 <- cv.glmnet(x.er2,y.er2, alpha = 1, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.lasso.er3 <- cv.glmnet(x.er3,y.er3, alpha = 1, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.lasso.er4 <- cv.glmnet(x.er4,y.er4, alpha = 1, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.lasso.er5 <- cv.glmnet(x.er5,y.er5, alpha = 1, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+```
+
+```{r, include=FALSE}
+# Obtain the lambda which gives smallest error
+lasso.lambda.er1 <- cv.fit.lasso.er1$lambda.min
+lasso.lambda.er2 <- cv.fit.lasso.er2$lambda.min
+lasso.lambda.er3 <- cv.fit.lasso.er3$lambda.min
+lasso.lambda.er4 <- cv.fit.lasso.er4$lambda.min
+lasso.lambda.er5 <- cv.fit.lasso.er5$lambda.min
+# Run lasso  with the 'best' lambda
+best.lasso.fit.er1 <- glmnet(x.er1,y.er1, alpha = 1, lambda = lasso.lambda.er1)
+best.lasso.fit.er2 <- glmnet(x.er2,y.er2, alpha = 1, lambda = lasso.lambda.er2)
+best.lasso.fit.er3 <- glmnet(x.er3,y.er3, alpha = 1, lambda = lasso.lambda.er3)
+best.lasso.fit.er4 <- glmnet(x.er4,y.er4, alpha = 1, lambda = lasso.lambda.er4)
+best.lasso.fit.er5 <- glmnet(x.er5,y.er5, alpha = 1, lambda = lasso.lambda.er5)
+# Computing the MSE of the model
+lasso.pred.er1 <- as.numeric(predict(best.lasso.fit.er1, s=lasso.lambda.er1,
+                                     newx=x.er1))
+lasso.pred.er2 <- as.numeric(predict(best.lasso.fit.er2, s=lasso.lambda.er2,
+                                     newx=x.er2))
+lasso.pred.er3 <- as.numeric(predict(best.lasso.fit.er3, s=lasso.lambda.er3,
+                                     newx=x.er3))
+lasso.pred.er4 <- as.numeric(predict(best.lasso.fit.er4, s=lasso.lambda.er4,
+                                     newx=x.er4))
+lasso.pred.er5 <- as.numeric(predict(best.lasso.fit.er5, s=lasso.lambda.er5,
+                                     newx=x.er5))
+mse.lasso.er1 <- mean((lasso.pred.er1 - y.er1)^2)
+mse.lasso.er2 <- mean((lasso.pred.er2 - y.er2)^2)
+mse.lasso.er3 <- mean((lasso.pred.er3 - y.er3)^2)
+mse.lasso.er4 <- mean((lasso.pred.er4 - y.er4)^2)
+mse.lasso.er5 <- mean((lasso.pred.er5 - y.er5)^2)
+
+vect.mse.lasso <- c(mse.lasso.er1,mse.lasso.er2,mse.lasso.er3,mse.lasso.er4,
+                    mse.lasso.er5)
+```
+
+```{r, include=FALSE}
+# Elastic net
+# Set a seed so results can be reproduced
+set.seed(1982)
+# Run k-fold cross-validation for the set of alphas
+out.er1 <- cv.alpha.vect(alphas = alphas, feat = x.er1, res = y.er1, l = lambdas)
+out.er2 <- cv.alpha.vect(alphas = alphas, feat = x.er2, res = y.er2, l = lambdas)
+out.er3 <- cv.alpha.vect(alphas = alphas, feat = x.er3, res = y.er3, l = lambdas)
+out.er4 <- cv.alpha.vect(alphas = alphas, feat = x.er4, res = y.er4, l = lambdas)
+out.er5 <- cv.alpha.vect(alphas = alphas, feat = x.er5, res = y.er5, l = lambdas)
+```
+
+```{r, include=FALSE}
+# Get a vector of the MSE associated to the 'best' lambda for each alpha
+vect.mse.elastic.er1 <- cv.mse.vect(out.er1, featu = x.er1, resp = y.er1)
+vect.mse.elastic.er2 <- cv.mse.vect(out.er2, featu = x.er2, resp = y.er2)
+vect.mse.elastic.er3 <- cv.mse.vect(out.er3, featu = x.er3, resp = y.er3)
+vect.mse.elastic.er4 <- cv.mse.vect(out.er4, featu = x.er4, resp = y.er4)
+vect.mse.elastic.er5 <- cv.mse.vect(out.er5, featu = x.er5, resp = y.er5)
+# Select the lowest MSE over elastic.mse
+index.er1 <- which.min(vect.mse.elastic.er1)
+index.er2 <- which.min(vect.mse.elastic.er2)
+index.er3 <- which.min(vect.mse.elastic.er3)
+index.er4 <- which.min(vect.mse.elastic.er4)
+index.er5 <- which.min(vect.mse.elastic.er5)
+# Gets the minimum MSE over all pairs (alpha,lambda)
+mse.elastic.er1 <- vect.mse.elastic.er1[index.er1]
+mse.elastic.er2 <- vect.mse.elastic.er2[index.er2]
+mse.elastic.er3 <- vect.mse.elastic.er3[index.er3]
+mse.elastic.er4 <- vect.mse.elastic.er4[index.er4]
+mse.elastic.er5 <- vect.mse.elastic.er5[index.er5]
+
+vect.mse.elastic <- c(mse.elastic.er1,mse.elastic.er2,mse.elastic.er3,
+                      mse.elastic.er4,mse.elastic.er5)
+```
+
+```{r, echo=FALSE}
+# Make the plot
+all.mse <- as.data.frame(cbind(c(1,5,10,15,20), vect.mse.ols, vect.mse.ridge, vect.mse.lasso, vect.mse.elastic))
+names(all.mse) <- c('noise','ols','ridge','lasso','elastic')
+ggplot(data = all.mse, aes(x = noise, y = ols, color = 'ols')) +
+  geom_point()+geom_point(data = all.mse, aes(x=noise,y=ridge, color ='ridge'))+
+  geom_point(data = all.mse, aes(x=noise,y=lasso, color ='lasso'))+
+  geom_point(data = all.mse, aes(x=noise,y=elastic, color ='elastic'))+
+  labs(x = 'Sigma', y = 'Training MSE') + 
+  ggtitle('Training MSE vs Sigma (Small values)')+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+This is the plot for large values of $\sigma$, selected values were 25, 30, 35, 40, 45.
+
+```{r, include=FALSE}
+set.seed(2019)
+noise1 <- rnorm(length(Hitters$Salary), sd = 25)
+noise2 <- rnorm(length(Hitters$Salary), sd = 30)
+noise3 <- rnorm(length(Hitters$Salary), sd = 35)
+noise4 <- rnorm(length(Hitters$Salary), sd = 40)
+noise5 <- rnorm(length(Hitters$Salary), sd = 45)
+Hitters$Salary.e1 <- Hitters$Salary+noise1
+Hitters$Salary.e2 <- Hitters$Salary+noise2
+Hitters$Salary.e3 <- Hitters$Salary+noise3
+Hitters$Salary.e4 <- Hitters$Salary+noise4
+Hitters$Salary.e5 <- Hitters$Salary+noise5
+```
+
+```{r, include=FALSE}
+# OLS
+fit.er1 <- lm(Salary.e1 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                Assists+Errors+NewLeague, data = Hitters)
+mse.re1 <- mean(fit.er1$residuals^2)
+fit.er2 <- lm(Salary.e2 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                Assists+Errors+NewLeague, data = Hitters)
+mse.re2 <- mean(fit.er2$residuals^2)
+fit.er3 <- lm(Salary.e3 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                Assists+Errors+NewLeague, data = Hitters)
+mse.re3 <- mean(fit.er3$residuals^2)
+fit.er4 <- lm(Salary.e4 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                Assists+Errors+NewLeague, data = Hitters)
+mse.re4 <- mean(fit.er4$residuals^2)
+fit.er5 <- lm(Salary.e5 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                Assists+Errors+NewLeague, data = Hitters)
+mse.re5 <- mean(fit.er5$residuals^2)
+vect.mse.ols <- c(mse.re1,mse.re2,mse.re3,mse.re4,mse.re5)
+```
+
+```{r, include=FALSE}
+# Making design matrix for each error
+x.er1 <- model.matrix(Salary.e1 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                        CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                        Assists+Errors+NewLeague, data = Hitters,y=Salary.e1)[,-1]
+y.er1 <- Hitters$Salary.e1
+x.er2 <- model.matrix(Salary.e2 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                        CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                        Assists+Errors+NewLeague, data = Hitters,y=Salary.e2)[,-1]
+y.er2 <- Hitters$Salary.e2
+x.er3 <- model.matrix(Salary.e3 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                        CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                        Assists+Errors+NewLeague, data = Hitters,y=Salary.e3)[,-1]
+y.er3 <- Hitters$Salary.e3
+x.er4 <- model.matrix(Salary.e4 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                        CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                        Assists+Errors+NewLeague, data = Hitters,y=Salary.e4)[,-1]
+y.er4 <- Hitters$Salary.e4
+x.er5 <- model.matrix(Salary.e5 ~ AtBat+Hits+HmRun+Runs+RBI+Walks+Years+CAtBat+
+                        CHits+CHmRun+CRuns+CRBI+CWalks+League+Division+PutOuts+
+                        Assists+Errors+NewLeague, data = Hitters,y=Salary.e5)[,-1]
+y.er5 <- Hitters$Salary.e5
+```
+
+```{r, include=FALSE}
+# Ridge Regression
+# Set a seed so results can be reproduced
+set.seed(1980)
+# Here I run 10-fold cross-validation
+cv.fit.ridge.er1 <- cv.glmnet(x.er1,y.er1, alpha = 0, nfolds = 10, 
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.ridge.er2 <- cv.glmnet(x.er2,y.er2, alpha = 0, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.ridge.er3 <- cv.glmnet(x.er3,y.er3, alpha = 0, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.ridge.er4 <- cv.glmnet(x.er4,y.er4, alpha = 0, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.ridge.er5 <- cv.glmnet(x.er5,y.er5, alpha = 0, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+```
+
+```{r, include=FALSE}
+# Obtain the lambda which gives smallest error
+ridge.lambda.er1 <- cv.fit.ridge.er1$lambda.min
+ridge.lambda.er2 <- cv.fit.ridge.er2$lambda.min
+ridge.lambda.er3 <- cv.fit.ridge.er3$lambda.min
+ridge.lambda.er4 <- cv.fit.ridge.er4$lambda.min
+ridge.lambda.er5 <- cv.fit.ridge.er5$lambda.min
+# Run ridge regression with the 'best' lambda
+best.ridge.fit.er1 <- glmnet(x.er1,y.er1, alpha = 0, lambda = ridge.lambda.er1)
+best.ridge.fit.er2 <- glmnet(x.er2,y.er2, alpha = 0, lambda = ridge.lambda.er2)
+best.ridge.fit.er3 <- glmnet(x.er3,y.er3, alpha = 0, lambda = ridge.lambda.er3)
+best.ridge.fit.er4 <- glmnet(x.er4,y.er4, alpha = 0, lambda = ridge.lambda.er4)
+best.ridge.fit.er5 <- glmnet(x.er5,y.er5, alpha = 0, lambda = ridge.lambda.er5)
+# Computing the MSE of the model
+ridge.pred.er1 <- as.numeric(predict(best.ridge.fit.er1, s=ridge.lambda.er1,
+                                     newx=x.er1))
+ridge.pred.er2 <- as.numeric(predict(best.ridge.fit.er2, s=ridge.lambda.er2,
+                                     newx=x.er2))
+ridge.pred.er3 <- as.numeric(predict(best.ridge.fit.er3, s=ridge.lambda.er3,
+                                     newx=x.er3))
+ridge.pred.er4 <- as.numeric(predict(best.ridge.fit.er4, s=ridge.lambda.er4,
+                                     newx=x.er4))
+ridge.pred.er5 <- as.numeric(predict(best.ridge.fit.er5, s=ridge.lambda.er5,
+                                     newx=x.er5))
+mse.ridge.er1 <- mean((ridge.pred.er1 - y.er1)^2)
+mse.ridge.er2 <- mean((ridge.pred.er2 - y.er2)^2)
+mse.ridge.er3 <- mean((ridge.pred.er3 - y.er3)^2)
+mse.ridge.er4 <- mean((ridge.pred.er4 - y.er4)^2)
+mse.ridge.er5 <- mean((ridge.pred.er5 - y.er5)^2)
+
+#mse.ridge.er1 <- cv.fit.ridge.er1$cvm[which.min(cv.fit.ridge.er1$cvm)]
+#mse.ridge.er2 <- cv.fit.ridge.er2$cvm[which.min(cv.fit.ridge.er2$cvm)]
+#mse.ridge.er3 <- cv.fit.ridge.er3$cvm[which.min(cv.fit.ridge.er3$cvm)]
+#mse.ridge.er4 <- cv.fit.ridge.er4$cvm[which.min(cv.fit.ridge.er4$cvm)]
+#mse.ridge.er5 <- cv.fit.ridge.er5$cvm[which.min(cv.fit.ridge.er5$cvm)]
+
+vect.mse.ridge <- c(mse.ridge.er1,mse.ridge.er2,mse.ridge.er3,mse.ridge.er4,
+                    mse.ridge.er5)
+```
+
+```{r, include=FALSE}
+# Lasso
+# Set a seed so results can be reproduced
+set.seed(1981)
+# Here I run 10-fold cross-validation
+cv.fit.lasso.er1 <- cv.glmnet(x.er1,y.er1, alpha = 1, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.lasso.er2 <- cv.glmnet(x.er2,y.er2, alpha = 1, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.lasso.er3 <- cv.glmnet(x.er3,y.er3, alpha = 1, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.lasso.er4 <- cv.glmnet(x.er4,y.er4, alpha = 1, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+cv.fit.lasso.er5 <- cv.glmnet(x.er5,y.er5, alpha = 1, nfolds = 10,
+                              lambda = lambdas, type.measure = 'mse')
+```
+
+```{r, include=FALSE}
+# Obtain the lambda which gives smallest error
+lasso.lambda.er1 <- cv.fit.lasso.er1$lambda.min
+lasso.lambda.er2 <- cv.fit.lasso.er2$lambda.min
+lasso.lambda.er3 <- cv.fit.lasso.er3$lambda.min
+lasso.lambda.er4 <- cv.fit.lasso.er4$lambda.min
+lasso.lambda.er5 <- cv.fit.lasso.er5$lambda.min
+# Run lasso  with the 'best' lambda
+best.lasso.fit.er1 <- glmnet(x.er1,y.er1, alpha = 1, lambda = lasso.lambda.er1)
+best.lasso.fit.er2 <- glmnet(x.er2,y.er2, alpha = 1, lambda = lasso.lambda.er2)
+best.lasso.fit.er3 <- glmnet(x.er3,y.er3, alpha = 1, lambda = lasso.lambda.er3)
+best.lasso.fit.er4 <- glmnet(x.er4,y.er4, alpha = 1, lambda = lasso.lambda.er4)
+best.lasso.fit.er5 <- glmnet(x.er5,y.er5, alpha = 1, lambda = lasso.lambda.er5)
+# Computing the MSE of the model
+lasso.pred.er1 <- as.numeric(predict(best.lasso.fit.er1, s=lasso.lambda.er1,
+                                     newx=x.er1))
+lasso.pred.er2 <- as.numeric(predict(best.lasso.fit.er2, s=lasso.lambda.er2,
+                                     newx=x.er2))
+lasso.pred.er3 <- as.numeric(predict(best.lasso.fit.er3, s=lasso.lambda.er3,
+                                     newx=x.er3))
+lasso.pred.er4 <- as.numeric(predict(best.lasso.fit.er4, s=lasso.lambda.er4,
+                                     newx=x.er4))
+lasso.pred.er5 <- as.numeric(predict(best.lasso.fit.er5, s=lasso.lambda.er5,
+                                     newx=x.er5))
+mse.lasso.er1 <- mean((lasso.pred.er1 - y.er1)^2)
+mse.lasso.er2 <- mean((lasso.pred.er2 - y.er2)^2)
+mse.lasso.er3 <- mean((lasso.pred.er3 - y.er3)^2)
+mse.lasso.er4 <- mean((lasso.pred.er4 - y.er4)^2)
+mse.lasso.er5 <- mean((lasso.pred.er5 - y.er5)^2)
+
+vect.mse.lasso <- c(mse.lasso.er1,mse.lasso.er2,mse.lasso.er3,mse.lasso.er4,
+                    mse.lasso.er5)
+```
+
+```{r, include=FALSE}
+# Elastic net
+# Set a seed so results can be reproduced
+set.seed(1982)
+# Run k-fold cross-validation for the set of alphas
+out.er1 <- cv.alpha.vect(alphas = alphas, feat = x.er1, res = y.er1, l = lambdas)
+out.er2 <- cv.alpha.vect(alphas = alphas, feat = x.er2, res = y.er2, l = lambdas)
+out.er3 <- cv.alpha.vect(alphas = alphas, feat = x.er3, res = y.er3, l = lambdas)
+out.er4 <- cv.alpha.vect(alphas = alphas, feat = x.er4, res = y.er4, l = lambdas)
+out.er5 <- cv.alpha.vect(alphas = alphas, feat = x.er5, res = y.er5, l = lambdas)
+```
+
+```{r, include=FALSE}
+# Get a vector of the MSE associated to the 'best' lambda for each alpha
+vect.mse.elastic.er1 <- cv.mse.vect(out.er1, featu = x.er1, resp = y.er1)
+vect.mse.elastic.er2 <- cv.mse.vect(out.er2, featu = x.er2, resp = y.er2)
+vect.mse.elastic.er3 <- cv.mse.vect(out.er3, featu = x.er3, resp = y.er3)
+vect.mse.elastic.er4 <- cv.mse.vect(out.er4, featu = x.er4, resp = y.er4)
+vect.mse.elastic.er5 <- cv.mse.vect(out.er5, featu = x.er5, resp = y.er5)
+# Select the lowest MSE over elastic.mse
+index.er1 <- which.min(vect.mse.elastic.er1)
+index.er2 <- which.min(vect.mse.elastic.er2)
+index.er3 <- which.min(vect.mse.elastic.er3)
+index.er4 <- which.min(vect.mse.elastic.er4)
+index.er5 <- which.min(vect.mse.elastic.er5)
+# Gets the minimum MSE over all pairs (alpha,lambda)
+mse.elastic.er1 <- vect.mse.elastic.er1[index.er1]
+mse.elastic.er2 <- vect.mse.elastic.er2[index.er2]
+mse.elastic.er3 <- vect.mse.elastic.er3[index.er3]
+mse.elastic.er4 <- vect.mse.elastic.er4[index.er4]
+mse.elastic.er5 <- vect.mse.elastic.er5[index.er5]
+
+vect.mse.elastic <- c(mse.elastic.er1,mse.elastic.er2,mse.elastic.er3,
+                      mse.elastic.er4,mse.elastic.er5)
+```
+
+```{r, echo=FALSE}
+# Make the plot
+all.mse <- as.data.frame(cbind(c(25,30,35,40,45), vect.mse.ols, vect.mse.ridge, vect.mse.lasso, vect.mse.elastic))
+names(all.mse) <- c('noise','ols','ridge','lasso','elastic')
+ggplot(data = all.mse, aes(x = noise, y = ols, color = 'ols')) +
+  geom_point()+geom_point(data = all.mse, aes(x=noise,y=ridge, color ='ridge'))+
+  geom_point(data = all.mse, aes(x=noise,y=lasso, color ='lasso'))+
+  geom_point(data = all.mse, aes(x=noise,y=elastic, color ='elastic'))+
+  labs(x = 'Sigma', y = 'Training MSE') + 
+  ggtitle('Training MSE vs Sigma (Large values)')+
+  theme(plot.title = element_text(hjust = 0.5))
+```
